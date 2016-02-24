@@ -1,7 +1,7 @@
 {
   "name": "angular-ui-router",
   "description": "State-based routing for AngularJS",
-  "version": "0.2.15",
+  "version": "0.2.16",
   "homepage": "http://angular-ui.github.com/",
   "contributors": [
     {
@@ -24,10 +24,6 @@
       "web": "https://github.com/angular-ui?tab=members"
     }
   ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/angular-ui/ui-router.git"
-  },
   "bugs": {
     "url": "https://github.com/angular-ui/ui-router/issues"
   },
