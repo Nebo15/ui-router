@@ -1,7 +1,7 @@
 describe("UrlMatcher", function () {
   var provider;
   beforeEach(function() {
-    angular.module('ui.router.router.test', function() {}).config(function ($urlMatcherFactoryProvider) {
+    angular.module('ui.router.router.test', []).config(function ($urlMatcherFactoryProvider) {
       provider = $urlMatcherFactoryProvider;
     });
 
@@ -61,10 +61,40 @@ describe("UrlMatcher", function () {
     expect(matcher.format(array)).toBe('/?foo=bar&foo=baz');
   });
 
-  it("should encode and decode slashes in parameter values", function () {
-    var matcher = new UrlMatcher('/:foo');
-    expect(matcher.format({ foo: "/" })).toBe('/%252F');
-    expect(matcher.format({ foo: "//" })).toBe('/%252F%252F');
+  it("should encode and decode slashes in parameter values as ~2F", function () {
+    var matcher1 = new UrlMatcher('/:foo');
+
+    expect(matcher1.format({ foo: "/" })).toBe('/~2F');
+    expect(matcher1.format({ foo: "//" })).toBe('/~2F~2F');
+
+    expect(matcher1.exec('/')).toBeTruthy();
+    expect(matcher1.exec('//')).not.toBeTruthy();
+
+    expect(matcher1.exec('/').foo).toBe("");
+    expect(matcher1.exec('/123').foo).toBe("123");
+    expect(matcher1.exec('/~2F').foo).toBe("/");
+    expect(matcher1.exec('/123~2F').foo).toBe("123/");
+
+    // param :foo should match between two slashes
+    var matcher2 = new UrlMatcher('/:foo/');
+
+    expect(matcher2.exec('/')).not.toBeTruthy();
+    expect(matcher2.exec('//')).toBeTruthy();
+
+    expect(matcher2.exec('//').foo).toBe("");
+    expect(matcher2.exec('/123/').foo).toBe("123");
+    expect(matcher2.exec('/~2F/').foo).toBe("/");
+    expect(matcher2.exec('/123~2F/').foo).toBe("123/");
+  });
+
+  it("should encode and decode tildes in parameter values as ~~", function () {
+    var matcher1 = new UrlMatcher('/:foo');
+
+    expect(matcher1.format({ foo: "abc" })).toBe('/abc');
+    expect(matcher1.format({ foo: "~abc" })).toBe('/~~abc');
+
+    expect(matcher1.exec('/abc').foo).toBe("abc");
+    expect(matcher1.exec('/~~abc').foo).toBe("~abc");
   });
 
   describe("snake-case parameters", function() {
@@ -272,6 +302,8 @@ describe("UrlMatcher", function () {
       expect(m.exec($location.path(), $location.search())).toEqual( { param1: undefined } );
       $location.url("/foo?param1=bar");
       expect(m.exec($location.path(), $location.search())).toEqual( { param1: 'bar' } ); // auto unwrap
+      $location.url("/foo?param1=");
+      expect(m.exec($location.path(), $location.search())).toEqual( { param1: undefined } );
       $location.url("/foo?param1=bar&param1=baz");
       if (angular.isArray($location.search())) // conditional for angular 1.0.8
         expect(m.exec($location.path(), $location.search())).toEqual( { param1: ['bar', 'baz'] } );
@@ -304,6 +336,8 @@ describe("UrlMatcher", function () {
 
       $location.url("/foo");
       expect(m.exec($location.path(), $location.search())).toEqual( { param1: undefined } );
+      $location.url("/foo?param1=");
+      expect(m.exec($location.path(), $location.search())).toEqual( { param1: undefined } );
       $location.url("/foo?param1=bar");
       expect(m.exec($location.path(), $location.search())).toEqual( { param1: [ 'bar' ] } );
       $location.url("/foo?param1=bar&param1=baz");
@@ -332,6 +366,29 @@ describe("UrlMatcher", function () {
       if (angular.isArray($location.search())) // conditional for angular 1.0.8
         expect(m.exec($location.path(), $location.search())).toEqual( { "param1[]": ['bar', 'baz'] } );
       expect(m.format({ "param1[]": ['bar', 'baz'] })).toBe("/foo?param1[]=bar&param1[]=baz");
+    }));
+
+    // Test for issue #2222
+    it("should return default value, if query param is missing.", inject(function($location) {
+      var m = new UrlMatcher('/state?param1&param2&param3&param5', {
+        params: {
+          param1 : 'value1',
+          param2 : {array: true, value: ['value2']},
+          param3 : {array: true, value: []},
+          param5 : {array: true, value: function() {return [];}}
+        }
+      });
+
+      var parsed = m.exec("/state");
+      var expected = {
+        "param1": 'value1',
+        "param2": ['value2'],
+        "param3": [],
+        "param5": []
+      };
+
+      expect(parsed).toEqualData(expected)
+      expect(m.params.$$values(parsed)).toEqualData(expected);
     }));
 
     it("should not be wrapped by ui-router into an array if array: false", inject(function($location) {

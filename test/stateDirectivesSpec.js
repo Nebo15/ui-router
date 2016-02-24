@@ -292,10 +292,11 @@ describe('uiStateRef', function() {
   });
 
   describe('links with dynamic state definitions', function () {
-    var template;
+    var template, $state;
 
-    beforeEach(inject(function($rootScope, $compile, $state) {
-      el = angular.element('<a ui-state="state" ui-state-params="params">state</a>');
+    beforeEach(inject(function($rootScope, $compile, _$state_) {
+      $state = _$state_;
+      el = angular.element('<a ui-sref-active="active" ui-sref-active-eq="activeeq" ui-state="state" ui-state-params="params">state</a>');
       scope = $rootScope;
       angular.extend(scope, { state: 'contacts', params: {} });
       template = $compile(el)(scope);
@@ -325,6 +326,38 @@ describe('uiStateRef', function() {
       scope.$digest();
       expect(angular.element(template[0]).attr('href')).toBe('#/contacts');
     });
+
+    it('updates a linked ui-sref-active', inject(function ($timeout) {
+      function tick() { scope.$digest(); try { $timeout.flush(); } catch (error) { } }
+      expect(template[0].className).not.toContain('active');
+      expect(template[0].className).not.toContain('activeeq');
+
+      $state.go('contacts');
+      tick();
+      expect(template[0].className).toContain('active activeeq');
+
+      scope.state = 'contacts.item';
+      scope.params = { id: 5 };
+      tick();
+      expect(template[0].className).not.toContain('active');
+      expect(template[0].className).not.toContain('activeeq');
+
+      $state.go('contacts.item', { id: -5 });
+      tick();
+      expect(template[0].className).not.toContain('active');
+      expect(template[0].className).not.toContain('activeeq');
+
+      $state.go('contacts.item', { id: 5 });
+      tick();
+      expect(template[0].className).toContain('active activeeq');
+
+      scope.state = 'contacts';
+      scope.params = { };
+      tick();
+      expect(template[0].className).toContain('active');
+      expect(template[0].className).not.toContain('activeeq');
+
+    }));
 
     it('accepts param overrides', inject(function ($compile) {
       el = angular.element('<a ui-state="state" ui-state-params="params">state</a>');
@@ -506,6 +539,24 @@ describe('uiSrefActive', function() {
     expect(angular.element(template[0].querySelector('a')).attr('class')).toBe('');
   }));
 
+  it('should update in response to ui-sref param expression changes', inject(function($rootScope, $q, $compile, $state) {
+    el = angular.element('<div><a ui-sref="contacts.item.detail({ foo: fooId })" ui-sref-active="active">Contacts</a></div>');
+    template = $compile(el)($rootScope);
+    $rootScope.fooId = 'bar'
+    $rootScope.$digest();
+
+    expect(angular.element(template[0].querySelector('a')).attr('class')).toBe('');
+    $state.transitionTo('contacts.item.detail', { id: 5, foo: 'bar' });
+    $q.flush();
+    timeoutFlush();
+    expect(angular.element(template[0].querySelector('a')).attr('class')).toBe('active');
+
+    $rootScope.fooId = 'baz'
+    $q.flush();
+    timeoutFlush();
+    expect(angular.element(template[0].querySelector('a')).attr('class')).toBe('');
+  }));
+
   it('should match on child states', inject(function($rootScope, $q, $compile, $state) {
     template = $compile('<div><a ui-sref="contacts.item({ id: 1 })" ui-sref-active="active">Contacts</a></div>')($rootScope);
     $rootScope.$digest();
@@ -635,6 +686,17 @@ describe('uiSrefActive', function() {
     expect(angular.element(template[0].querySelector('a')).attr('class')).toBe('active');
   }));
 
+  it('should allow multiple classes to be supplied', inject(function($rootScope, $q, $compile, $state) {
+    template = $compile('<div><a ui-sref="contacts.item({ id: 1 })" ui-sref-active="active also-active">Contacts</a></div>')($rootScope);
+    $rootScope.$digest();
+    var a = angular.element(template[0].getElementsByTagName('a')[0]);
+
+    $state.transitionTo('contacts.item.edit', { id: 1 });
+    $q.flush();
+    timeoutFlush();
+    expect(a.attr('class')).toMatch(/active also-active/);
+  }));
+
   describe('ng-{class,style} interface', function() {
     it('should match on abstract states that are included by the current state', inject(function($rootScope, $compile, $state, $q) {
       el = $compile('<div ui-sref-active="{active: \'admin.*\'}"><a ui-sref-active="active" ui-sref="admin.roles">Roles</a></div>')($rootScope);
@@ -679,6 +741,16 @@ describe('uiSrefActive', function() {
       timeoutFlush();
       expect(el[0].className).toMatch(/admin/);
       expect(el[0].className).not.toMatch(/contacts/);
+    }));
+
+    it('should update the active classes when compiled', inject(function($compile, $rootScope, $document, $state, $q) {
+      $state.transitionTo('admin.roles');
+      $q.flush();
+      timeoutFlush();
+      el = $compile('<div ui-sref-active="{active: \'admin.roles\'}"/>')($rootScope);
+      $rootScope.$digest();
+      timeoutFlush();
+      expect(el.hasClass('active')).toBeTruthy();
     }));
   });
 });

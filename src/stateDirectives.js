@@ -74,7 +74,7 @@ function defaultOpts(el, $state) {
  * to the state that the link lives in, in other words the state that loaded the
  * template containing the link.
  *
- * You can specify options to pass to {@link ui.router.state.$state#go $state.go()}
+ * You can specify options to pass to {@link ui.router.state.$state#methods_go $state.go()}
  * using the `ui-sref-opts` attribute. Options are restricted to `location`, `inherit`,
  * and `reload`.
  *
@@ -111,7 +111,7 @@ function defaultOpts(el, $state) {
  * </pre>
  *
  * @param {string} ui-sref 'stateName' can be any valid absolute or relative state
- * @param {Object} ui-sref-opts options to pass to {@link ui.router.state.$state#go $state.go()}
+ * @param {Object} ui-sref-opts options to pass to {@link ui.router.state.$state#methods_go $state.go()}
  */
 $StateRefDirective.$inject = ['$state', '$timeout'];
 function $StateRefDirective($state, $timeout) {
@@ -123,6 +123,7 @@ function $StateRefDirective($state, $timeout) {
       var def    = { state: ref.state, href: null, params: null };
       var type   = getTypeInfo(element);
       var active = uiSrefActive[1] || uiSrefActive[0];
+      var unlinkInfoFn = null;
 
       def.options = extend(defaultOpts(element, $state), attrs.uiSrefOpts ? scope.$eval(attrs.uiSrefOpts) : {});
 
@@ -130,7 +131,8 @@ function $StateRefDirective($state, $timeout) {
         if (val) def.params = angular.copy(val);
         def.href = $state.href(ref.state, def.params, def.options);
 
-        if (active) active.$$addStateInfo(ref.state, def.params);
+        if (unlinkInfoFn) unlinkInfoFn();
+        if (active) unlinkInfoFn = active.$$addStateInfo(ref.state, def.params);
         if (def.href !== null) attrs.$set(type.attr, def.href);
       };
 
@@ -159,8 +161,8 @@ function $StateRefDirective($state, $timeout) {
  * params and override options.
  *
  * @param {string} ui-state 'stateName' can be any valid absolute or relative state
- * @param {Object} ui-state-params params to pass to {@link ui.router.state.$state#href $state.href()}
- * @param {Object} ui-state-opts options to pass to {@link ui.router.state.$state#go $state.go()}
+ * @param {Object} ui-state-params params to pass to {@link ui.router.state.$state#methods_href $state.href()}
+ * @param {Object} ui-state-opts options to pass to {@link ui.router.state.$state#methods_go $state.go()}
  */
 $StateRefDynamicDirective.$inject = ['$state', '$timeout'];
 function $StateRefDynamicDirective($state, $timeout) {
@@ -173,12 +175,14 @@ function $StateRefDynamicDirective($state, $timeout) {
       var group  = [attrs.uiState, attrs.uiStateParams || null, attrs.uiStateOpts || null];
       var watch  = '[' + group.map(function(val) { return val || 'null'; }).join(', ') + ']';
       var def    = { state: null, params: null, options: null, href: null };
+      var unlinkInfoFn = null;
 
       function runStateRefLink (group) {
         def.state = group[0]; def.params = group[1]; def.options = group[2];
         def.href = $state.href(def.state, def.params, def.options);
 
-        if (active) active.$$addStateInfo(ref.state, def.params);
+        if (unlinkInfoFn) unlinkInfoFn();
+        if (active) unlinkInfoFn = active.$$addStateInfo(def.state, def.params);
         if (def.href) attrs.$set(type.attr, def.href);
       }
 
@@ -289,14 +293,20 @@ function $StateRefActiveDirective($state, $stateParams, $interpolate) {
   return  {
     restrict: "A",
     controller: ['$scope', '$element', '$attrs', '$timeout', function ($scope, $element, $attrs, $timeout) {
-      var states = [], activeClasses = {}, activeEqClass;
+      var states = [], activeClasses = {}, activeEqClass, uiSrefActive;
 
       // There probably isn't much point in $observing this
       // uiSrefActive and uiSrefActiveEq share the same directive object with some
       // slight difference in logic routing
       activeEqClass = $interpolate($attrs.uiSrefActiveEq || '', false)($scope);
 
-      var uiSrefActive = $scope.$eval($attrs.uiSrefActive) || $interpolate($attrs.uiSrefActive || '', false)($scope);
+      try {
+        uiSrefActive = $scope.$eval($attrs.uiSrefActive);
+      } catch (e) {
+        // Do nothing. uiSrefActive is not a valid expression.
+        // Fall back to using $interpolate below
+      }
+      uiSrefActive = uiSrefActive || $interpolate($attrs.uiSrefActive || '', false)($scope);
       if (isObject(uiSrefActive)) {
         forEach(uiSrefActive, function(stateOrName, activeClass) {
           if (isString(stateOrName)) {
@@ -313,8 +323,9 @@ function $StateRefActiveDirective($state, $stateParams, $interpolate) {
         if (isObject(uiSrefActive) && states.length > 0) {
           return;
         }
-        addState(newState, newParams, uiSrefActive);
+        var deregister = addState(newState, newParams, uiSrefActive);
         update();
+        return deregister;
       };
 
       $scope.$on('$stateChangeSuccess', update);
@@ -323,13 +334,19 @@ function $StateRefActiveDirective($state, $stateParams, $interpolate) {
         var state = $state.get(stateName, stateContext($element));
         var stateHash = createStateHash(stateName, stateParams);
 
-        states.push({
+        var stateInfo = {
           state: state || { name: stateName },
           params: stateParams,
           hash: stateHash
-        });
+        };
 
+        states.push(stateInfo);
         activeClasses[stateHash] = activeClass;
+
+        return function removeState() {
+          var idx = states.indexOf(stateInfo);
+          if (idx !== -1) states.splice(idx, 1);
+        };
       }
 
       /**
@@ -372,6 +389,8 @@ function $StateRefActiveDirective($state, $stateParams, $interpolate) {
       function removeClass(el, className) { el.removeClass(className); }
       function anyMatch(state, params) { return $state.includes(state.name, params); }
       function exactMatch(state, params) { return $state.is(state.name, params); }
+
+      update();
     }]
   };
 }
